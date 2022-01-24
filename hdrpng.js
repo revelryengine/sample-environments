@@ -59,10 +59,10 @@ export function parseHDR(buffer) {
         if (isNewRLE && (width >= 8) && (width < 32768)) {
             for (let i = 0; i < 4; i++) {
                 let ptr = i * width;
-                const ptr_end = (i + 1) * width;
+                const ptrEnd = (i + 1) * width;
                 let buf = undefined;
                 let count = undefined;
-                while (ptr < ptr_end) {
+                while (ptr < ptrEnd) {
                     buf = d8.slice(pos, pos += 2);
                     if (buf[0] > 128) {
                         count = buf[0] - 128;

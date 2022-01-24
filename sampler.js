@@ -200,7 +200,7 @@ export class EnvironmentSampler {
         });
     }
 
-    async loadHDR(hdrBuffer) {
+    loadHDR(hdrBuffer) {
         const { data, width, height } = parseHDR(new Uint8Array(hdrBuffer));
 
         const sampler   = this.device.createSampler({ minFilter: 'linear', magFilter: 'linear', });
@@ -315,7 +315,7 @@ export class EnvironmentSampler {
     }
 
     async sample(hdrBuffer) {
-        const hdr = await this.loadHDR(hdrBuffer);
+        const hdr = this.loadHDR(hdrBuffer);
     
         const { data, width, height } = await this.convertPanoramaToCubemap(hdr);
 

@@ -1,4 +1,5 @@
 import { exists, ensureDir  } from 'https://deno.land/std/fs/mod.ts';
+import { writeAll           } from 'https://deno.land/std@0.122.0/streams/conversion.ts';
 import { EnvironmentSampler } from './sampler.js';
 
 const environments = [
@@ -36,10 +37,10 @@ async function downloadFile(url, dest) {
     const res    = await fetch(url);
     const file   = await Deno.open(dest, { create: true, write: true });
     for await(const chunk of res.body) {
-        await Deno.writeAll(file, chunk);
+        await writeAll(file, chunk);
     }
     file.close();
-};
+}
 
 async function generateReadme(name, path) {
     const dest = `./${path}/README.md`;
