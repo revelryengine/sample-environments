@@ -1,4 +1,4 @@
-# Revelry Engine Sample Models
+# Revelry Engine Sample Environments
 
 This repository is used to aggergate environment IBLs for demonstration purposes with the Revelry Engine GLTF Renderer.
 
