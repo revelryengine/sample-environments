@@ -10,7 +10,7 @@ This script borrows concepts and shader logic from [KhronosGroup/glTF-Sample-Vie
 
 ### Prequisites
 
-- deno
+- deno 1.28 (WebGPU is still undergoing changes so it may not work in other versions of deno)
 
 ##### Generate KTX2 textures and index
 

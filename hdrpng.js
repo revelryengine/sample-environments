@@ -5,21 +5,6 @@
  * 
  */
 
-function rgbeToRGBA32Float(buffer){
-    const length = buffer.byteLength >> 2;
-    const result = new Float32Array(length * 4);
-
-    for (let i = 0; i < length; i++) {
-        const s = Math.pow(2, buffer[i * 4 + 3] - (128 + 8));
-
-        result[i * 4 + 0] = buffer[i * 4 + 0] * s;
-        result[i * 4 + 1] = buffer[i * 4 + 1] * s;
-        result[i * 4 + 2] = buffer[i * 4 + 2] * s;
-        result[i * 4 + 3] = 1;
-    }
-    return result;
-}
-
 export function parseHDR(buffer) {
     let header = '';
     let pos = 0;
@@ -99,7 +84,6 @@ export function parseHDR(buffer) {
 
     return {
         rgbe:   img,
-        data:   rgbeToRGBA32Float(img),
         width:  width,
         height: height
     };

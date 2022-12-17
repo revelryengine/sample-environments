@@ -1,72 +1,70 @@
-import { parseHDR          } from './hdrpng.js';
-import { write as writeKTX } from 'https://cdn.skypack.dev/ktx-parse';
-import { VK_FORMATS } from './constants.js';
+import { parseHDR } from './hdrpng.js';
+import { rgbeToRGBA32, deriveIrradianceCoefficients } from './utils.js';
 
-const fullscreenVert = /* wgsl */ `
-    struct VertexInput {
-        [[builtin(vertex_index)]]   vertexID: u32;
-        [[builtin(instance_index)]] instanceID: u32;
-    };
-
+const fullscreenVert = /* wgsl */`
     struct VertexOutput {
-        [[builtin(position)]] position: vec4<f32>;
-        [[location(0)]] texCoord: vec2<f32>;
-        [[location(1)]] instanceID: u32;
+        @builtin(position) position: vec4<f32>,
+        @location(0) texCoord: vec2<f32>,
+        @location(1) @interpolate(flat) texLayer: i32,
     };
 
-    [[stage(vertex)]]
-    fn vs_main(in: VertexInput) -> VertexOutput {
-        var x = f32((in.vertexID & 1u) << 2u);
-        var y = f32((in.vertexID & 2u) << 1u);
+    @vertex
+    fn vs_main(@builtin(vertex_index) VertexIndex : u32) -> VertexOutput {
+        var vertexID = i32(VertexIndex);
+        var id = vertexID % 3;
+        var x  = f32(u32(id & 1) << 2u);
+        var y  = f32(u32(id & 2) << 1u);
 
-        var out : VertexOutput;
-        out.texCoord = vec2<f32>(x * 0.5, y * 0.5);
-        out.position = vec4<f32>(x - 1.0, 1.0 - y, 0.0, 1.0);
-        out.instanceID = in.instanceID;
-        return out;
+        var result : VertexOutput;
+        result.texCoord = vec2<f32>(x * 0.5, y * 0.5);
+        result.texLayer = i32((vertexID - (vertexID % 3)) / 3);
+
+        result.position = vec4<f32>(x - 1.0, 1.0 - y, 1.0, 1.0);
+        
+        return result;
     }
 `;
 
 const downsampleFrag = /* wgsl */`
-    [[group(0), binding(0)]] var colorSampler: sampler;
-    [[group(0), binding(1)]] var colorTexture: texture_2d<f32>;
+    @group(0) @binding(0) var colorSampler: sampler;
+    @group(0) @binding(1) var colorTexture: texture_2d<f32>;
 
     struct VertexOutput {
-        [[builtin(position)]] position: vec4<f32>;
-        [[location(0)]] texCoord: vec2<f32>;
-        [[location(1)]] instanceID: u32;
+        @builtin(position) position: vec4<f32>,
+        @location(0) texCoord: vec2<f32>,
+        @location(1) @interpolate(flat) texLayer: i32,
     };
 
     struct FragmentOutput {
-        [[location(0)]] color: vec4<f32>;
+        @location(0) color: vec4<f32>,
     };
 
-    [[stage(fragment)]]
-    fn fs_main(in: VertexOutput) -> FragmentOutput {
-        var out: FragmentOutput;
-        out.color = textureSample(colorTexture, colorSampler, in.texCoord);
-        return out;
+    @fragment
+    fn fs_main(vertex: VertexOutput) -> FragmentOutput {
+        var result: FragmentOutput;
+        result.color = textureSample(colorTexture, colorSampler, vertex.texCoord);
+        return result;
     }
 `;
 
 const panoramaToCubemapFrag = /* wgsl */ `
     ${fullscreenVert}
     
-    [[group(0), binding(0)]] var panoramaSampler: sampler;
-    [[group(0), binding(1)]] var panoramaTexture: texture_2d<f32>;
+    @group(0) @binding(0) var panoramaSampler: sampler;
+    @group(0) @binding(1) var panoramaTexture: texture_2d<f32>;
 
-    fn uvToXYZ(face: u32, uv: vec2<f32>) -> vec3<f32> {
-        if(face == 0u) {
+    fn uvToXYZ(face: i32, uv: vec2<f32>) -> vec3<f32> {
+        if(face == 0) {
             return vec3<f32>(    1.0,  uv.y, -uv.x);
-        } elseif(face == 1u) {
+        } else if(face == 1) {
             return vec3<f32>(   -1.0,  uv.y,  uv.x);
-        } elseif(face == 2u) {
+        } else if(face == 2) {
             return vec3<f32>(   uv.x,  -1.0,  uv.y);
-        } elseif(face == 3u) {
+        } else if(face == 3) {
             return vec3<f32>(   uv.x,   1.0, -uv.y);
-        } elseif(face == 4u) {
+        } else if(face == 4) {
             return vec3<f32>(   uv.x,  uv.y,   1.0);
-        } elseif(face == 5u) {
+        } else if(face == 5) {
             return vec3<f32>(  -uv.x,  uv.y,  -1.0);
         }
         return vec3<f32>(0.0);
@@ -79,7 +77,7 @@ const panoramaToCubemapFrag = /* wgsl */ `
         );
     }
 
-    fn panoramaToCubemap(face: u32, texCoord: vec2<f32>) -> vec3<f32> {
+    fn panoramaToCubemap(texCoord: vec2<f32>, face: i32) -> vec3<f32> {
         var scan      = uvToXYZ(face, texCoord * 2.0 - 1.0);
         var direction = normalize(scan);
         var src       = dirToUV(direction);
@@ -87,27 +85,41 @@ const panoramaToCubemapFrag = /* wgsl */ `
         return textureSample(panoramaTexture, panoramaSampler, src).rgb;
     }
 
-    [[stage(fragment)]]
-    fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-        return vec4<f32>(panoramaToCubemap(in.instanceID, in.texCoord), 1.0); 
+    @fragment
+    fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+        return vec4<f32>(panoramaToCubemap(in.texCoord, in.texLayer), 1.0); 
     }
 `;
 
-export class EnvironmentSampler {
-    constructor({ width = 512, height = 512, format = 'VK_FORMAT_R8G8B8_UNORM' } = {}){
+async function createShaderModule(device, code) {
+    const module = device.createShaderModule({ code });
+    // const info = await module.compilationInfo(); //not implemented yet in deno webgpu https://github.com/gfx-rs/wgpu/issues/2130
+    // for(const msg of info.messages) {
+    //     if(msg.type === 'error') {
+    //         console.warn('Shader compilation error', `${msg.lineNum}:${msg.linePos} - ${msg.message}`);
+    //         if(msg.src) console.warn(msg.src.split(`\n`).map((line, i) => `${i + 1}: ${line}`).join('\n'));
+    //         return;
+    //     }
+    // }
+    return module;
+}
+
+export class HDRISampler {
+    constructor({ width = 512, height = 512 } = {}){
         this.width  = width;
         this.height = height;
-        this.format = format;
-
-        this.bytesPerElement = VK_FORMATS[this.format].TypedArray.BYTES_PER_ELEMENT;
-        this.gpuFormat       = VK_FORMATS[this.format].gpuFormat;
+        this.bytesPerElement = Float32Array.BYTES_PER_ELEMENT;
     }
 
     async init() {
-        const { width, height, bytesPerElement, gpuFormat } = this;
+        const { width, height, bytesPerElement } = this;
 
         this.adapter = await navigator.gpu.requestAdapter();
         this.device  = await this.adapter?.requestDevice();
+
+        this.device.onuncapturederror = (event) => {
+            console.error('A WebGPU error was not captured:', event.error);
+        };
 
         this.cubemapBuffer = this.device.createBuffer({
             size: width * height * 6 * 4 * bytesPerElement,
@@ -117,7 +129,7 @@ export class EnvironmentSampler {
         this.cubemapTexture = this.device.createTexture({
             size: { width, height, depthOrArrayLayers: 6 },
             dimension: '2d',
-            format: gpuFormat,
+            format: 'rgba32float',
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
         });
 
@@ -150,11 +162,11 @@ export class EnvironmentSampler {
                 bindGroupLayouts: [this.downsampleLayout],
             }),
             vertex: {
-                module: this.device.createShaderModule({ code: fullscreenVert }),
+                module: await createShaderModule(this.device, fullscreenVert),
                 entryPoint: 'vs_main',
             },
             fragment: {
-                module: this.device.createShaderModule({ code: downsampleFrag }),
+                module: await createShaderModule(this.device, downsampleFrag),
                 entryPoint: 'fs_main',
                 targets: [
                     { format: 'rgba16float' },
@@ -184,14 +196,14 @@ export class EnvironmentSampler {
                 bindGroupLayouts: [this.panoramaToCubemapLayout],
             }),
             vertex: {
-                module: this.device.createShaderModule({ code: fullscreenVert }),
+                module: await createShaderModule(this.device, fullscreenVert),
                 entryPoint: 'vs_main',
             },
             fragment: {
-                module: this.device.createShaderModule({ code: panoramaToCubemapFrag }),
+                module: await createShaderModule(this.device, panoramaToCubemapFrag),
                 entryPoint: 'fs_main',
                 targets: [
-                    { format: gpuFormat },
+                    { format: 'rgba32float' },
                 ],
             },
             primitive: {
@@ -200,8 +212,10 @@ export class EnvironmentSampler {
         });
     }
 
-    loadHDR(hdrBuffer) {
-        const { data, width, height } = parseHDR(new Uint8Array(hdrBuffer));
+    async loadHDR(hdrBuffer) {
+        const { rgbe, width, height } = parseHDR(new Uint8Array(hdrBuffer));
+
+        const data = rgbeToRGBA32(rgbe);
 
         const sampler   = this.device.createSampler({ minFilter: 'linear', magFilter: 'linear', });
         const texture32 = this.device.createTexture({
@@ -237,28 +251,28 @@ export class EnvironmentSampler {
         const renderEncoder = commandEncoder.beginRenderPass({
             colorAttachments: [{
                 view: texture16.createView(),
-                loadValue: [0, 0, 0, 0],
+                clearValue: [0, 0, 0, 0],
                 storeOp: 'store',
+                loadOp: 'clear'
             }],
         });
 
         renderEncoder.setPipeline(this.downsamplePipeline);
         renderEncoder.setBindGroup(0, bindGroup);
         renderEncoder.draw(3, 1, 0, 0);
-        renderEncoder.endPass();
+        renderEncoder.end();
 
         this.device.queue.submit([commandEncoder.finish()]);
 
         return { sampler, texture: texture16, data, width, height };
     }
 
-    async convertPanoramaToCubemap(hdr) {
+    convertPanoramaToCubemap(hdr) {
         const { sampler, texture } = hdr;
 
         const { width, height, bytesPerElement } = this;
 
-        const bytesPerRow   = width * 4 * bytesPerElement;
-        const bytesPerLayer = bytesPerRow * height;
+        const bytesPerRow = width * 4 * bytesPerElement;
 
         const bindGroup = this.device.createBindGroup({
             layout: this.panoramaToCubemapPipeline.getBindGroupLayout(0),
@@ -279,14 +293,15 @@ export class EnvironmentSampler {
             const renderEncoder = commandEncoder.beginRenderPass({
                 colorAttachments: [{
                     view: this.cubemapViews[i],
-                    loadValue: [0, 0, 0, 0],
+                    clearValue: [0, 0, 0, 0],
                     storeOp: 'store',
+                    loadOp: 'clear'
                 }],
             });
             renderEncoder.setPipeline(this.panoramaToCubemapPipeline);
             renderEncoder.setBindGroup(0, bindGroup);
-            renderEncoder.draw(3, 1, 0, i);
-            renderEncoder.endPass();
+            renderEncoder.draw(3, 1, i * 3, 0);
+            renderEncoder.end();
         }
 
         commandEncoder.copyTextureToBuffer(
@@ -296,52 +311,21 @@ export class EnvironmentSampler {
         );
 
         this.device.queue.submit([commandEncoder.finish()]);
-
-        await this.cubemapBuffer.mapAsync(GPUMapMode.READ);
-
-        const cubemapBuffer = this.cubemapBuffer.getMappedRange();
-
-        const { TypedArray } = VK_FORMATS[this.format];
-        
-        const data = [];
-        for (let i = 0; i < 6; i++) {
-            //strip alpha component
-            const view = new TypedArray(cubemapBuffer, i * bytesPerLayer, width * height * 4);
-            data[i]    = new Uint8Array(TypedArray.from(view.filter((_,i) => !((i + 1) % 4 === 0))).buffer);
-        }
-
-        this.cubemapBuffer.unmap();
-        return { data, width, height, hdr };
     }
 
     async sample(hdrBuffer) {
-        const hdr = this.loadHDR(hdrBuffer);
-    
-        const { data, width, height } = await this.convertPanoramaToCubemap(hdr);
+        const { width, height, bytesPerElement } = this;
 
-        const uncompressedByteLength = data[0].byteLength * 6;
-        const levels = [{
-            levelData: new Uint8Array(uncompressedByteLength),
-            uncompressedByteLength
-        }];
-
-        for(let i = 0; i < data.length; i++) {
-            levels[0].levelData.set(data[i], i * data[i].byteLength, data[i].byteLength);
-        }
+        const hdr = await this.loadHDR(hdrBuffer);
         
-        const { vkFormat, dataFormatDescriptor } = VK_FORMATS[this.format];
+        this.convertPanoramaToCubemap(hdr);
 
-        return { hdr, ktxFile: writeKTX({
-            vkFormat,
-            typeSize: 1,
-            pixelWidth: width,
-            pixelHeight: height,
-            pixelDepth: 0,
-            layerCount: 0,
-            faceCount: 6,
-            supercompressionScheme: 0,
-            levels,
-            dataFormatDescriptor,
-        }) }
+        await this.cubemapBuffer.mapAsync(GPUMapMode.READ);
+        const sample     = new Float32Array(this.cubemapBuffer.getMappedRange());
+        const irradiance = deriveIrradianceCoefficients(sample, width);
+
+        this.cubemapBuffer.unmap();
+   
+        return { sample, irradiance };
     }
 }
