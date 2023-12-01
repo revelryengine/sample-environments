@@ -3,23 +3,17 @@
     "version": "2.0"
   },
   "extensionsUsed": [
-    "KHR_lights_environment"
+    "KHR_environment_map"
   ],
   "extensions": {
-    "KHR_lights_environment": {
+    "KHR_environment_map": {
       "cubemaps": [
         {
           "source": 0,
           "layer": 0
         }
       ],
-      "images": [
-        {
-          "uri": "specular_rgb8unorm.ktx2",
-          "mimeType": "image/ktx2"
-        }
-      ],
-      "lights": [
+      "environment_maps": [
         {
           "cubemap": 0,
           "irradianceCoefficients": [
@@ -72,5 +66,11 @@
         }
       ]
     }
-  }
+  },
+  "images": [
+    {
+      "uri": "specular_rgb8unorm.ktx2",
+      "mimeType": "image/ktx2"
+    }
+  ]
 }

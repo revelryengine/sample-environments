@@ -39,7 +39,7 @@ async function downloadFile(url, dest) {
         console.log('File already exists', dest);
         return;
     }
-    
+
     console.log('Downloading', url);
     const res    = await fetch(url);
     const file   = await Deno.open(dest, { create: true, write: true });
@@ -63,19 +63,19 @@ The image for this texture is provided by [polyhaven](https://polyhaven.com/a/${
 
 async function generateGLTF(path, format, irradiance) {
     let dest = `./${path}/${path}_${format.name}.gltf`;
-    
+
     console.log(`Generating ${dest}`);
 
     const gltf = JSON.parse(template);
-    gltf.extensions.KHR_lights_environment.images[0].uri = `specular_${format.name}.ktx2`;
-    gltf.extensions.KHR_lights_environment.lights[0].irradianceCoefficients = irradiance.map(v => [...v]);
+    gltf.images[0].uri = `specular_${format.name}.ktx2`;
+    gltf.extensions.KHR_environment_map.environment_maps[0].irradianceCoefficients = irradiance.map(v => [...v]);
     await Deno.writeTextFile(dest, JSON.stringify(gltf, null, 2));
 }
 
 async function generateKTX(path, format, sample) {
     const dest = `./${path}/specular_${format.name}.ktx2`;
     console.log(`Generating ${dest}`);
-    
+
     const { conversion, vkFormat, dataFormatDescriptor, typeSize } = VK_FORMATS[format.vkFormat];
 
     const bytesPerRow   = width * 4 * Float32Array.BYTES_PER_ELEMENT;
@@ -96,7 +96,7 @@ async function generateKTX(path, format, sample) {
     for(let i = 0; i < data.length; i++) {
         levels[0].levelData.set(data[i], i * data[i].byteLength, data[i].byteLength);
     }
-    
+
     const ktxFile = writeKTX({
         vkFormat,
         typeSize,
@@ -109,7 +109,7 @@ async function generateKTX(path, format, sample) {
         levels,
         dataFormatDescriptor,
     });
-        
+
 
     await Deno.writeFile(dest, ktxFile);
 }
@@ -143,9 +143,9 @@ for (const { path } of environments) {
 console.log(`Generating ./index.js`);
 const index = `function link(path, root = import.meta.url) { return new URL(path, root).toString(); }
 
-export default [
-${environments.map(({ name, path }) => 
-`    { 
+export const index = [
+${environments.map(({ name, path }) =>
+`    {
         name: '${name}', source: 'https://polyhaven.com/a/${path}',
         formats: {
 ${formats.map(({ name }) => `            '${name}': link('./${path}/${path}_${name}.gltf'),`).join('\n')}
